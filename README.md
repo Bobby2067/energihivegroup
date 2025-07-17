@@ -4,85 +4,99 @@ Integrated platform that fuses the **rich React UI** from `energi-hive-connect` 
 
 ---
 
-## ✨ Feature Highlights
+## 🧩 Backend Infrastructure Overview
+Energi Hive Main runs entirely on serverless primitives:
 
-| Category | Highlights |
-|----------|------------|
-| Payments (AU) | BPAY • PayID • Direct Bank Transfer • GoCardless Direct-Debit |
-| Batteries | Real-time & historical telemetry for AlphaESS & LG RESU (API + simulation) |
-| Communities | Create / join local groups, bulk-buy discounts, invitations |
-| Commerce | Deposit / balance workflow, order & fulfillment tracking |
-| Dashboards | Smart-energy, AI optimisation, ROI calculators, newsletter suite |
-| Auth & RBAC | Supabase email / OAuth, role-based access, secure RLS policies |
-| Notifications | Email (SMTP / SES), optional SMS, realtime toast feedback |
-| Dev-Ops | Next.js 14 App Router, Vercel zero-config deploy, typed Supabase SDK |
+| Layer | Service | Notes |
+|-------|---------|-------|
+| Edge API | **Next.js 14 App Router** (`/app/api/*`) | Deployed as Vercel Edge Functions |
+| Data & Auth | **Supabase Postgres** | RLS-secured tables, generated Types DB |
+| Realtime | Supabase Realtime | WebSocket streams for battery telemetry |
+| File Storage | Supabase Storage | Datasheets & marketing assets |
+| Business Logic | Supabase Edge Functions | Long-running payment interactions |
+| Queue / Cron | Supabase Schedules | Battery polling, email digests |
+| E-mail | Nodemailer (SMTP / SES) | Outbound transactional messages |
 
----
-
-## 🏗 Architecture Overview
-
-```
-              ┌───────────────────────────┐
-              │     Front-end (UI)        │   Vite + React 18 + shadcn/ui
-              │  (from energi-hive-connect)│
-              └─────────────┬─────────────┘
-                            │ HTTP / RSC
-              ┌─────────────▼─────────────┐
-              │  Next.js 14 API Routes    │  Batteries ▪ Orders ▪ Payments ▪ Email
-              │   (from energi-hive-platform) │
-              └─────────────┬─────────────┘
-                            │ supabase-js
-              ┌─────────────▼─────────────┐
-              │    Supabase Postgres      │  RLS, edge-funcs, storage
-              └───────────────────────────┘
-```
-
-Key integration points  
-1. **Payments** – Stripe removed.  `/lib/payments` implements Australian gateways and Supabase Edge Functions `create-payment` & `verify-payment`.  
-2. **Batteries** – Unified AlphaESS & LG clients under `/lib/batteries` with AU-specific simulation & TOU optimisations.  
-3. **UI Components** – Payment flows, dashboards and 30+ pages copied from `connect`, now rendered via Next.js.  
+Everything is defined as code – SQL migrations in `supabase/migrations`, TypeScript clients in `lib/`.
 
 ---
 
-## 💳 Australian Payment System
+## 📚 API End-Points
 
-| Method | Fees | Settlement | Notes |
-|--------|------|-----------|-------|
-| **BPAY** | $0 | Same-day | Most cost-effective for \> $2 k |
-| **PayID** | $0 | Instant | Great for deposits & small payments |
-| **Bank Transfer** | $0 | 1-2 days | Traditional BSB / account |
-| **GoCardless** | 1 % + $0.40 (max $4) | 2 days | Direct-debit, ideal for payment plans |
+| Route | Method(s) | Auth | Description |
+|-------|-----------|------|-------------|
+| `/api/auth/*` | POST, GET | Public | Supabase handles email/OAuth (handled by middleware) |
+| `/api/batteries` | GET | Public | List battery **products** with filters & pagination |
+| `/api/batteries` | POST | User | Register a new **battery system** to your account |
+| `/api/batteries/:systemId` | GET, PUT, DELETE | Owner/Admin | Fetch, update or delete a user’s system |
+| `/api/batteries/:systemId/monitoring` | GET | Owner/Admin | Latest telemetry (AlphaESS / LG RESU) |
+| `/api/orders` | GET, POST | User | List or create orders (inventory-aware) |
+| `/api/orders/:orderId` | GET, PUT, DELETE | Owner/Admin | Manage a specific order life-cycle |
+| `/api/payments` | POST | User | Create a payment (BPAY, PayID, GoCardless, Bank) |
+| `/api/payments` | GET | User/Admin | List payments with rich filters |
+| `/api/payments/:paymentId` | GET, PUT, DELETE | Owner/Admin | Retrieve, update status, or cancel payment |
+| `/api/payments/webhook` | POST | Provider | Provider → Energi Hive status updates |
+| `/api/email/send` | POST | Admin | One-off transactional email (SMTP/SES) |
 
-Implementation details  
-* `lib/payments/client.ts` creates, verifies and refunds payments.  
-* Edge functions live in `supabase/functions/*`.  
-* Webhook endpoint handles GoCardless events (`/api/payments/gocardless/webhook`).  
-
----
-
-## 🔋 Battery Monitoring
-
-* Real-time polling every 60 s (configurable) with graceful fallback to simulation.
-* Historical queries (`day / hour / 15 min`) cached for performance.
-* Australian TOU analytics added: peak / shoulder / off-peak cost, feed-in income, arbitrage signals.
+All routes return JSON and use standard HTTP status codes. Input validation is handled via **Zod**; see route source for detailed schemas.
 
 ---
 
-## 🛠 Tech Stack
+## 🗄 Database Schema Requirements
 
-| Layer | Tech / Service |
-|-------|----------------|
-| Front-end | **Next.js 14** (App Router) · React 18 · Tailwind CSS 3 · shadcn/ui |
-| State | TanStack Query · React-Hook-Form · Zod |
-| Data / Auth | **Supabase** (`@supabase/ssr`, edge functions) |
-| Payments | BPAY · PayID · GoCardless SDK |
-| Batteries | AlphaESS, LG RESU (REST) |
-| Email | Nodemailer (SMTP) or AWS SES |
-| Dev-Ops | **Vercel** CI/CD · Vitest · ESLint · Prettier |
+Core tables (abridged):
+
+| Table | Key Columns | RLS Policy |
+|-------|-------------|-----------|
+| `users` | `id`, `email`, `role` | Self-select, admin read/write |
+| `battery_products` | Specs … | Public read |
+| `battery_systems` | `id`, `userId`, `serialNumber`, `manufacturer` … | Owner read/write |
+| `battery_monitoring` | `systemId`, `timestamp`, telemetry JSON | Owner read |
+| `orders` | `id`, `userId`, `items` (JSONB) … | Owner read/write |
+| `payments` | `id`, `userId`, `status`, `paymentMethod`, `metadata` | Owner read/write |
+| `payment_webhooks` | raw payload | Admin read |
+| `inventory` | `productId`, `quantity` | Admin read/write |
+
+Functions / RPC:
+* `filter_orders_by_product(product_id uuid, product_type text)`
+* Realtime channel: `realtime:battery_systems`
+
+Migrations live in `supabase/migrations/*` and are applied via `supabase db push`.
 
 ---
 
-## ⚙️ Local Setup
+## 💳 Australian Payment System Integration
+
+Supported methods & flow:
+
+1. **Client** submits payment details to `/api/payments`  
+2. API validates via `lib/payments/validation.ts`  
+3. Provider SDK invoked:  
+   • BPAY — creates CRN & biller reference  
+   • PayID — generates PayID alias + metadata  
+   • GoCardless — creates mandate & payment  
+   • Bank Transfer — returns BSB / account details  
+4. Payment record stored in `payments` (status `pending`)  
+5. Provider → webhook → `/api/payments/webhook` updates status → order status cascade  
+
+Edge functions encapsulate any long-running SDK calls (`supabase/functions/payments-*`).
+
+---
+
+## 🔋 Battery Monitoring Capabilities
+
+* **AlphaESS**: Official REST v2; fallback scraper for legacy fleets.
+* **LG RESU**: Local gateway polling + cloud fallback.
+* Unified interface exposes:
+  * Real-time SOC, voltage, current, temperature
+  * 15-minute aggregates for graphs
+  * Forecast block: next optimal charge / discharge window (Australian TOU tariffs)
+* Cron job (`supabase/schedule/battery_poll.sql`) polls every minute, pushing rows into `battery_monitoring`.
+* Simulation mode (`process.env.SIMULATE_BATTERY=true`) generates deterministic yet realistic data for staging.
+
+---
+
+## ⚙️ Local Setup & Environment
 
 1. **Clone & install**
 
@@ -94,43 +108,79 @@ Implementation details
 
 2. **Environment variables**
 
+   Copy template and fill values:
+
    ```bash
    cp .env.example .env.local
-   # fill in Supabase keys, BPAY biller code, GoCardless token, etc.
    ```
 
-3. **Supabase**
+   Mandatory vars:
+
+   | Key | Description |
+   |-----|-------------|
+   | `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | Back-end connectivity |
+   | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Front-end public key |
+   | `BPAY_BILLER_CODE` | Issued by bank |
+   | `GOCARDLESS_ACCESS_TOKEN` | Live / sandbox token |
+   | `SMTP_HOST` / `SMTP_USER` / `SMTP_PASS` | Email |
+   | `ALPHAESS_API_KEY` / `LG_API_KEY` | Battery vendors |
+
+3. **Database & edge**
 
    ```bash
-   supabase db push          # run SQL migrations
-   supabase functions deploy # edge functions for payments
+   supabase db push
+   supabase functions deploy
    ```
 
-4. **Run dev server**
+4. **Run**
 
    ```bash
-   npm run dev               # http://localhost:3000
+   npm run dev      # http://localhost:3000
    ```
+
+Vitest & ESLint run via `npm test` / `npm run lint`.
 
 ---
 
-## 🚀 Deployment ( Vercel )
-
-1. Import the repo in Vercel → set **Framework = Next.js**.  
-2. Add all env-vars for **Production** & **Preview** environments.  
-3. Build command `npm run build` (default) – output automatically detected.  
-4. Supabase Edge Functions deploy separately; they run at `https://<project>.functions.supabase.co`.  
-5. Add custom domains, DSM records; SSL auto-provisioned.
+## 🏗 Architecture Overview
+```
+              ┌───────────────────────────┐
+              │     Front-end (UI)        │   Vite + React 18 + shadcn/ui
+              │ (ported from connect)     │
+              └─────────────┬─────────────┘
+                            │ HTTP / RSC
+              ┌─────────────▼─────────────┐
+              │  Next.js 14 API Routes    │  Batteries • Orders • Payments
+              └─────────────┬─────────────┘
+                            │ supabase-js
+              ┌─────────────▼─────────────┐
+              │    Supabase Postgres      │  RLS, cron, storage
+              └───────────────────────────┘
+```
 
 ---
 
-## 🇦🇺 Australian Market Optimisations
+## 🚀 Deployment (Vercel)
 
-* **TOU Cost Modelling** – peak / shoulder / off-peak tariff mapping for NEM east-coast states.  
-* **Feed-in Tariff Simulation** – 5 c / kWh default, configurable per community.  
-* **Weather & Season Adjust** – solar simulation scales by month (summer +30 %, winter -30 %).  
-* **Grid Alerts** – voltage fluctuation & low-SOC notifications tuned for Australian standards.  
-* **AUD Currency Defaults** – all money utilities default to AUD formatting.
+1. **Import repo** → Vercel dashboard (Framework = Next.js).  
+2. Add environment variables for **Production** & **Preview**.  
+3. Build command `npm run build` (default).  
+4. Supabase stays separate – just supply keys.  
+5. Optional: add `vercel.json` routing for edge cache.  
+
+---
+
+## 🛣 Next Steps for UI Development
+
+* ☑️ **Backend 100 % complete** – API & schema stable.  
+* ☐ **Port remaining UI pages** from `energi-hive-connect` (marketing, community, settings).  
+* ☐ Implement **React Query hooks** for new endpoints.  
+* ☐ Finish **Payment Wizard** (multi-step) using shadcn/ui dialogs.  
+* ☐ Add **Battery Dashboard** charts with Recharts + realtime websockets.  
+* ☐ Lighthouse & a11y pass.  
+* ☐ End-to-end tests with Playwright.
+
+Contributions welcome – see below!
 
 ---
 
@@ -143,23 +193,24 @@ Implementation details
 │  ├─ dashboard/        # user dashboards
 │  ├─ products/         # battery catalogue
 │  └─ api/              # serverless routes (payments, batteries…)
-├─ components/          # UI & feature modules (imported from connect)
+├─ components/          # UI modules (imported from connect)
 ├─ lib/                 # shared libraries
-│  ├─ supabase/         # typed clients & helpers
+│  ├─ supabase/         # typed client helpers
 │  ├─ payments/         # AU payment client
 │  ├─ batteries/        # AlphaESS & LG clients
 │  └─ email/            # email service
 ├─ supabase/            # SQL migrations + edge functions
-├─ public/              # static assets
-└─ vercel.json          # deploy config
+└─ public/              # static assets
 ```
 
 ---
 
 ## 🤝 Contributing
 
-PRs and issues welcome!  
-Please follow conventional commits and run `npm run lint && npm test` before pushing.
+1. Fork → feature branch (`feat/xyz`)  
+2. Conventional commits (`git cz`)  
+3. `npm run lint && npm test` must pass.  
+4. Open PR – CI will run Vitest & Type-check.
 
 ---
 
