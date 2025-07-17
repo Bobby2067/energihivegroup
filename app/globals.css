@@ -1,0 +1,386 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Australian Energy Market Colors */
+  --energy-primary: 142 70% 45%; /* Green energy */
+  --energy-primary-dark: 142 70% 35%;
+  --energy-secondary: 205 100% 50%; /* Blue for hydro/water */
+  --energy-secondary-dark: 205 100% 40%;
+  --energy-accent: 35 100% 50%; /* Solar yellow/gold */
+  --energy-accent-dark: 35 100% 40%;
+  --energy-warning: 25 100% 50%; /* Orange for alerts */
+  --energy-warning-dark: 25 100% 40%;
+  --energy-danger: 0 100% 50%; /* Red for critical */
+  --energy-danger-dark: 0 100% 40%;
+  --energy-success: 160 100% 40%; /* Green for success */
+  --energy-success-dark: 160 100% 30%;
+  
+  /* Australian Branded Colors */
+  --aus-green: 120 60% 35%; /* Australian green */
+  --aus-gold: 45 100% 50%; /* Australian gold */
+  
+  /* Neutral Colors */
+  --background: 0 0% 100%;
+  --foreground: 240 10% 3.9%;
+  --card: 0 0% 100%;
+  --card-foreground: 240 10% 3.9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 10% 3.9%;
+  --muted: 240 4.8% 95.9%;
+  --muted-foreground: 240 3.8% 46.1%;
+  --accent: 240 4.8% 95.9%;
+  --accent-foreground: 240 5.9% 10%;
+  --border: 240 5.9% 90%;
+  --input: 240 5.9% 90%;
+  --ring: 142 70% 45%;
+  
+  /* UI Elements */
+  --primary: 142 70% 45%;
+  --primary-foreground: 0 0% 98%;
+  --secondary: 205 100% 50%;
+  --secondary-foreground: 0 0% 98%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 0 0% 98%;
+  
+  /* Glassmorphism */
+  --glass-opacity: 0.8;
+  --glass-blur: 10px;
+  --glass-border: 1px;
+  --glass-border-color: rgba(255, 255, 255, 0.2);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  
+  /* Animation Timing */
+  --animation-slow: 1.5s;
+  --animation-medium: 0.8s;
+  --animation-fast: 0.3s;
+  
+  /* Battery Levels */
+  --battery-critical: 0 100% 50%;
+  --battery-low: 25 100% 50%;
+  --battery-medium: 45 100% 50%;
+  --battery-high: 120 70% 45%;
+  --battery-full: 160 100% 40%;
+  
+  /* Grid Energy */
+  --grid-import: 0 100% 50%; /* Red for importing */
+  --grid-export: 160 100% 40%; /* Green for exporting */
+  
+  /* Solar Energy */
+  --solar-active: 45 100% 50%; /* Bright gold for active solar */
+  --solar-inactive: 45 20% 50%; /* Muted gold for inactive solar */
+  
+  /* Responsive Breakpoints (in addition to Tailwind) */
+  --breakpoint-xs: 480px;
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+  --breakpoint-2xl: 1536px;
+}
+
+/* Dark Mode Theme */
+.dark {
+  --background: 240 10% 3.9%;
+  --foreground: 0 0% 98%;
+  --card: 240 10% 3.9%;
+  --card-foreground: 0 0% 98%;
+  --popover: 240 10% 3.9%;
+  --popover-foreground: 0 0% 98%;
+  --muted: 240 3.7% 15.9%;
+  --muted-foreground: 240 5% 64.9%;
+  --accent: 240 3.7% 15.9%;
+  --accent-foreground: 0 0% 98%;
+  --border: 240 3.7% 15.9%;
+  --input: 240 3.7% 15.9%;
+  --ring: 142 70% 45%;
+  
+  /* Glassmorphism for dark mode */
+  --glass-opacity: 0.15;
+  --glass-blur: 12px;
+  --glass-border-color: rgba(255, 255, 255, 0.1);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  
+  /* Dark mode adjustments for energy colors */
+  --energy-primary: 142 60% 40%;
+  --energy-secondary: 205 90% 45%;
+  --energy-accent: 35 90% 45%;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-bold tracking-tight;
+  }
+  
+  h1 {
+    @apply text-4xl md:text-5xl;
+  }
+  
+  h2 {
+    @apply text-3xl md:text-4xl;
+  }
+  
+  h3 {
+    @apply text-2xl md:text-3xl;
+  }
+  
+  h4 {
+    @apply text-xl md:text-2xl;
+  }
+}
+
+@layer components {
+  /* Glassmorphism Components */
+  .glass {
+    @apply bg-white/[var(--glass-opacity)] backdrop-blur-[var(--glass-blur)] 
+           border-[var(--glass-border)] border-[var(--glass-border-color)]
+           shadow-[var(--glass-shadow)];
+  }
+  
+  .glass-card {
+    @apply glass rounded-xl p-6;
+  }
+  
+  .glass-panel {
+    @apply glass rounded-lg p-4;
+  }
+  
+  .glass-button {
+    @apply glass rounded-md px-4 py-2 transition-all duration-300
+           hover:bg-white/[calc(var(--glass-opacity)+0.1)] 
+           active:scale-95;
+  }
+  
+  /* Energy-themed Components */
+  .energy-card {
+    @apply rounded-xl border border-border bg-card p-6 shadow-sm transition-all 
+           duration-300 hover:shadow-md;
+  }
+  
+  .energy-panel {
+    @apply rounded-lg border border-border bg-card p-4 shadow-sm;
+  }
+  
+  .energy-button-primary {
+    @apply rounded-md bg-primary px-4 py-2 text-primary-foreground 
+           transition-all duration-300 hover:bg-primary-dark active:scale-95;
+  }
+  
+  .energy-button-secondary {
+    @apply rounded-md bg-secondary px-4 py-2 text-secondary-foreground 
+           transition-all duration-300 hover:bg-secondary-dark active:scale-95;
+  }
+  
+  /* Battery Level Indicators */
+  .battery-indicator {
+    @apply relative h-6 w-24 rounded-md border border-border overflow-hidden;
+  }
+  
+  .battery-level {
+    @apply absolute left-0 top-0 h-full transition-all duration-500 ease-out;
+  }
+  
+  .battery-critical {
+    @apply bg-[hsl(var(--battery-critical))];
+  }
+  
+  .battery-low {
+    @apply bg-[hsl(var(--battery-low))];
+  }
+  
+  .battery-medium {
+    @apply bg-[hsl(var(--battery-medium))];
+  }
+  
+  .battery-high {
+    @apply bg-[hsl(var(--battery-high))];
+  }
+  
+  .battery-full {
+    @apply bg-[hsl(var(--battery-full))];
+  }
+  
+  /* Energy Flow Indicators */
+  .energy-flow {
+    @apply relative flex items-center justify-center;
+  }
+  
+  .flow-indicator {
+    @apply absolute h-1 rounded-full transition-all duration-300;
+  }
+  
+  .flow-import {
+    @apply bg-[hsl(var(--grid-import))];
+  }
+  
+  .flow-export {
+    @apply bg-[hsl(var(--grid-export))];
+  }
+  
+  .flow-solar {
+    @apply bg-[hsl(var(--solar-active))];
+  }
+  
+  /* Australian Market Specific */
+  .aus-card {
+    @apply rounded-xl border-2 border-[hsl(var(--aus-green))] bg-card p-6 shadow-sm;
+  }
+  
+  .aus-badge {
+    @apply inline-flex items-center rounded-full border border-[hsl(var(--aus-green))] 
+           bg-[hsl(var(--aus-green)/0.1)] px-2.5 py-0.5 text-xs font-semibold 
+           text-[hsl(var(--aus-green))] transition-colors;
+  }
+  
+  .aus-gold-badge {
+    @apply inline-flex items-center rounded-full border border-[hsl(var(--aus-gold))] 
+           bg-[hsl(var(--aus-gold)/0.1)] px-2.5 py-0.5 text-xs font-semibold 
+           text-[hsl(var(--aus-gold))] transition-colors;
+  }
+}
+
+/* Custom Animations */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes flow {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes charging {
+  0% {
+    box-shadow: inset 0 0 5px rgba(0, 255, 0, 0);
+  }
+  50% {
+    box-shadow: inset 0 0 20px rgba(0, 255, 0, 0.5);
+  }
+  100% {
+    box-shadow: inset 0 0 5px rgba(0, 255, 0, 0);
+  }
+}
+
+@keyframes discharging {
+  0% {
+    box-shadow: inset 0 0 5px rgba(255, 165, 0, 0);
+  }
+  50% {
+    box-shadow: inset 0 0 20px rgba(255, 165, 0, 0.5);
+  }
+  100% {
+    box-shadow: inset 0 0 5px rgba(255, 165, 0, 0);
+  }
+}
+
+@keyframes solar-active {
+  0% {
+    box-shadow: 0 0 5px rgba(255, 215, 0, 0);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(255, 215, 0, 0.7);
+  }
+  100% {
+    box-shadow: 0 0 5px rgba(255, 215, 0, 0);
+  }
+}
+
+/* Animation Classes */
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-flow {
+  animation: flow 1.5s linear infinite;
+}
+
+.animate-charging {
+  animation: charging 2s ease-in-out infinite;
+}
+
+.animate-discharging {
+  animation: discharging 2s ease-in-out infinite;
+}
+
+.animate-solar {
+  animation: solar-active 3s ease-in-out infinite;
+}
+
+/* Responsive Utilities (beyond Tailwind) */
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+/* Australian-specific utilities */
+.text-aus-green {
+  color: hsl(var(--aus-green));
+}
+
+.text-aus-gold {
+  color: hsl(var(--aus-gold));
+}
+
+.bg-aus-green {
+  background-color: hsl(var(--aus-green));
+}
+
+.bg-aus-gold {
+  background-color: hsl(var(--aus-gold));
+}
+
+/* Media query helpers */
+@media (max-width: 480px) {
+  .xs\:hidden {
+    display: none;
+  }
+}
+
+/* Print styles for invoices and receipts */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  
+  .print-only {
+    display: block !important;
+  }
+  
+  body {
+    font-size: 12pt;
+    line-height: 1.3;
+    background: white;
+    color: black;
+  }
+  
+  .print-break-inside-avoid {
+    break-inside: avoid;
+  }
+}
