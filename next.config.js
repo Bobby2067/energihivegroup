@@ -22,7 +22,6 @@ const nextConfig = {
   },
   experimental: {
     serverComponentsExternalPackages: ['nodemailer'],
-    optimizeCss: true,
     optimizePackageImports: [
       '@radix-ui/react-icons',
       'lucide-react',
