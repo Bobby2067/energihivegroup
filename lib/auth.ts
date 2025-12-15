@@ -65,13 +65,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             return null;
           }
 
-          // For now, allow any password in development
-          // In production, you'd verify against a hashed password
-          if (process.env.NODE_ENV === 'production') {
-            // TODO: Implement proper password hashing and verification
-            // const isValid = await bcrypt.compare(password, user.passwordHash);
-            // if (!isValid) return null;
-            return null; // Disable credentials auth in production for now
+          // Verify password hash
+          if (!user.passwordHash) {
+            // User doesn't have a password set (likely using email/OAuth only)
+            return null;
+          }
+
+          const isValid = await bcrypt.compare(password, user.passwordHash);
+          if (!isValid) {
+            return null;
           }
 
           return {
