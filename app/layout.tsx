@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import { Inter as FontSans } from 'next/font/google';
-import { cookies } from 'next/headers';
 
 import { ThemeProvider } from '@/components/providers/theme-provider';
 import { AuthProvider } from '@/components/providers/auth-provider';
@@ -8,8 +7,7 @@ import { QueryProvider } from '@/components/providers/query-provider';
 import { Toaster } from '@/components/ui/sonner';
 import { Navigation } from '@/components/navigation';
 import { Footer } from '@/components/footer';
-
-// TODO: Migrate to Drizzle ORM - import { db } from '@/lib/db/client'; import { auth } from '@/lib/auth';
+import { auth } from '@/lib/auth';
 import { cn } from '@/lib/utils';
 
 import './globals.css';
@@ -97,23 +95,17 @@ export const metadata: Metadata = {
   category: 'energy',
 };
 
-// Get initial server state for Supabase
+// Get initial server state for NextAuth
 async function getInitialState() {
-  const cookieStore = cookies();
-  const supabase = createClient(cookieStore);
-  
   try {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    
+    const session = await auth();
     return {
-      supabaseSession: session,
+      session,
     };
   } catch (error) {
     console.error('Error getting initial state:', error);
     return {
-      supabaseSession: null,
+      session: null,
     };
   }
 }
@@ -138,7 +130,7 @@ export default async function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <AuthProvider initialSession={initialState.supabaseSession}>
+          <AuthProvider session={initialState.session}>
             <QueryProvider>
               <div className="relative flex min-h-screen flex-col">
                 <Navigation />
