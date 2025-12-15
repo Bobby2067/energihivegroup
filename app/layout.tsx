@@ -9,7 +9,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { Navigation } from '@/components/navigation';
 import { Footer } from '@/components/footer';
 
-import { createClient } from '@/lib/supabase/client';
+// TODO: Migrate to Drizzle ORM - import { db } from '@/lib/db/client'; import { auth } from '@/lib/auth';
 import { cn } from '@/lib/utils';
 
 import './globals.css';

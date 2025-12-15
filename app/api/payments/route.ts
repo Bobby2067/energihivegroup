@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createClient } from '@/lib/supabase/client';
+// TODO: Migrate to Drizzle ORM - import { db } from '@/lib/db/client'; import { auth } from '@/lib/auth';
 import { v4 as uuidv4 } from 'uuid';
 import {
   createPayment,

@@ -10,7 +10,16 @@
       "Bash(npm run db:generate:*)",
       "Bash(npm run db:push:*)",
       "Bash(npx drizzle-kit push:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nMigrate from Supabase to Drizzle ORM + NextAuth v5\n\nMajor architectural changes:\n- Install Drizzle ORM (0.45.1) and NextAuth v5 (beta.30)\n- Create complete database schema with 17 tables and 7 enums\n- Setup Drizzle database client with Neon PostgreSQL\n- Configure NextAuth v5 with Drizzle adapter for authentication\n- Update package.json with Drizzle scripts (db:generate, db:push, db:studio, db:migrate)\n- Create .env.local with DATABASE_URL and NextAuth configuration\n- Begin payment client migration from Supabase to Drizzle\n- Fix payment route to use correct payment client API\n- Create placeholder for energy-flow-diagram component\n\nInfrastructure setup complete, Supabase removal in progress.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(gh repo create:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git remote add:*)",
+      "Bash(git push:*)",
+      "Bash(git branch:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nUpdate README to reflect Drizzle ORM + NextAuth v5 architecture\n\n- Replace Supabase references with Drizzle ORM and NextAuth v5\n- Update infrastructure table with new tech stack\n- Document 17-table database schema with 7 enums\n- Update setup instructions for Drizzle (db:push, db:studio)\n- Update deployment guide for Neon PostgreSQL\n- Add migration status section showing progress\n- Update project structure to show lib/db/ directory\n- Update architecture diagram with new stack\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(npm uninstall:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nComplete Supabase removal from codebase\n\nBREAKING CHANGE: All Supabase dependencies removed in favor of Drizzle ORM + NextAuth v5\n\nChanges:\n- ✅ Migrated lib/payments/client.ts to use Drizzle ORM\n- ✅ Deleted lib/supabase/ directory completely\n- ✅ Removed @supabase/supabase-js and @supabase/ssr from package.json\n- ✅ Updated .env.example to use DATABASE_URL and NEXTAUTH_* vars\n- ✅ Commented out Supabase imports in API routes (marked with TODO)\n\nAPI Routes requiring full Drizzle migration:\n- app/api/batteries/route.ts (630 lines)\n- app/api/orders/route.ts (891 lines)\n- app/api/payments/route.ts (798 lines)\n- app/layout.tsx (157 lines)\n\nThese routes are marked with:\n// TODO: Migrate to Drizzle ORM\n\nNext steps: Implement Drizzle queries in all marked routes\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
     ],
     "deny": [],
     "ask": []
