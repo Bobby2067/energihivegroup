@@ -2,15 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createClient } from '@/lib/supabase/client';
 import { v4 as uuidv4 } from 'uuid';
-import { 
-  createPayment, 
-  getPaymentStatus, 
-  cancelPayment,
-  createBpayPayment,
-  createPayIdPayment,
-  createGoCardlessPayment,
-  createBankTransferPayment,
-  validatePaymentDetails
+import {
+  createPayment,
+  verifyPayment
 } from '@/lib/payments/client';
 
 // Payment method types specific to Australian market
@@ -364,135 +358,28 @@ export async function POST(req: NextRequest) {
       const validatedPayment = createPaymentSchema.parse(body);
       
       const supabase = createClient();
-      
-      // Check if order exists and belongs to user
-      const { data: order, error: orderError } = await supabase
-        .from('orders')
-        .select('*')
-        .eq('id', validatedPayment.orderId)
-        .single();
-        
-      if (orderError || !order) {
-        return NextResponse.json({ error: 'Order not found' }, { status: 404 });
-      }
-      
-      if (order.userId !== userId) {
-        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-      }
-      
-      // Validate payment amount matches order total
-      if (validatedPayment.amount !== order.total) {
-        return NextResponse.json({ 
-          error: 'Payment amount does not match order total',
-          expected: order.total,
-          received: validatedPayment.amount
-        }, { status: 400 });
-      }
-      
-      // Validate payment details based on payment method
-      const validationResult = await validatePaymentDetails(
-        validatedPayment.paymentMethod,
-        validatedPayment.paymentDetails
-      );
-      
-      if (!validationResult.valid) {
-        return NextResponse.json({ 
-          error: 'Invalid payment details',
-          details: validationResult.errors
-        }, { status: 400 });
-      }
-      
-      // Create payment in the appropriate payment provider
-      let paymentResult;
-      
-      switch (validatedPayment.paymentMethod) {
-        case 'bpay':
-          paymentResult = await createBpayPayment(
-            validatedPayment.paymentDetails as BpayDetails,
-            order
-          );
-          break;
-        case 'payid':
-          paymentResult = await createPayIdPayment(
-            validatedPayment.paymentDetails as PayIdDetails,
-            order
-          );
-          break;
-        case 'gocardless':
-          paymentResult = await createGoCardlessPayment(
-            validatedPayment.paymentDetails as GoCardlessDetails,
-            order
-          );
-          break;
-        case 'bank_transfer':
-          paymentResult = await createBankTransferPayment(
-            validatedPayment.paymentDetails as BankTransferDetails,
-            order
-          );
-          break;
-        default:
-          return NextResponse.json({ error: 'Unsupported payment method' }, { status: 400 });
-      }
-      
-      if (!paymentResult.success) {
-        return NextResponse.json({ 
-          error: 'Payment creation failed',
-          details: paymentResult.error
-        }, { status: 500 });
-      }
-      
-      // Create payment record in database
-      const newPayment: Omit<Payment, 'id'> = {
-        userId,
-        orderId: validatedPayment.orderId,
-        amount: validatedPayment.amount,
-        currency: validatedPayment.currency,
-        status: 'pending',
-        paymentMethod: validatedPayment.paymentMethod,
-        paymentDetails: validatedPayment.paymentDetails,
-        metadata: {
-          ...validatedPayment.metadata,
-          providerPaymentId: paymentResult.paymentId,
-          providerReference: paymentResult.reference
+
+      // The payment client's createPayment function handles everything:
+      // - Validation
+      // - Provider-specific payment creation
+      // - Database record creation
+      // - Error handling via thrown exceptions
+
+      const paymentResult = await createPayment(
+        {
+          orderId: validatedPayment.orderId,
+          userId,
+          paymentMethod: validatedPayment.paymentMethod,
+          paymentType: validatedPayment.paymentType || 'balance',
+          amount: validatedPayment.amount,
+          reference: validatedPayment.reference,
+          metadata: validatedPayment.metadata
         },
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        receiptEmail: validatedPayment.receiptEmail
-      };
-      
-      const { data: payment, error: insertError } = await supabase
-        .from('payments')
-        .insert({
-          id: uuidv4(),
-          ...newPayment
-        })
-        .select()
-        .single();
-        
-      if (insertError) {
-        return NextResponse.json({ 
-          error: 'Failed to create payment record',
-          details: insertError.message
-        }, { status: 500 });
-      }
-      
-      // Update order with payment ID
-      await supabase
-        .from('orders')
-        .update({
-          paymentId: payment.id,
-          status: 'pending',
-          updatedAt: new Date().toISOString()
-        })
-        .eq('id', validatedPayment.orderId);
-        
-      // Return payment details with instructions
-      return NextResponse.json({
-        ...payment,
-        instructions: paymentResult.instructions,
-        redirectUrl: paymentResult.redirectUrl,
-        expiresAt: paymentResult.expiresAt
-      }, { status: 201 });
+        supabase
+      );
+
+      // Return payment response with all details
+      return NextResponse.json(paymentResult, { status: 201 });
       
     } catch (validationError) {
       if (validationError instanceof z.ZodError) {
