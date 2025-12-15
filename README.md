@@ -1,23 +1,27 @@
-# Energi Hive Main
+# Energi Hive 🔋⚡
 
-Integrated platform that fuses the **rich React UI** from `energi-hive-connect` with the **robust Next.js 14 API layer** of `energi-hive-platform`, packaged as a single repository ready for production in the Australian energy market.
+**Australian Battery Energy Storage Platform**
+
+A comprehensive marketplace and management platform for residential battery energy storage systems, built specifically for the Australian energy market.
+
+**Now powered by Drizzle ORM + NextAuth v5** for modern, type-safe, vendor-agnostic infrastructure.
 
 ---
 
 ## 🧩 Backend Infrastructure Overview
-Energi Hive Main runs entirely on serverless primitives:
+Energi Hive runs on modern serverless primitives:
 
 | Layer | Service | Notes |
 |-------|---------|-------|
 | Edge API | **Next.js 14 App Router** (`/app/api/*`) | Deployed as Vercel Edge Functions |
-| Data & Auth | **Supabase Postgres** | RLS-secured tables, generated Types DB |
-| Realtime | Supabase Realtime | WebSocket streams for battery telemetry |
-| File Storage | Supabase Storage | Datasheets & marketing assets |
-| Business Logic | Supabase Edge Functions | Long-running payment interactions |
-| Queue / Cron | Supabase Schedules | Battery polling, email digests |
-| E-mail | Nodemailer (SMTP / SES) | Outbound transactional messages |
+| Database | **PostgreSQL (Neon)** | Serverless Postgres with Drizzle ORM |
+| ORM | **Drizzle ORM 0.45.1** | Type-safe queries, zero runtime overhead |
+| Authentication | **NextAuth v5** | Industry-standard auth with Drizzle adapter |
+| Payments | **Australian Payment Systems** | BPAY, PayID, GoCardless, Bank Transfer |
+| Battery APIs | **AlphaESS, LG ESS** | Real-time monitoring integration |
+| Email | **Nodemailer (SMTP / SES)** | Transactional emails |
 
-Everything is defined as code – SQL migrations in `supabase/migrations`, TypeScript clients in `lib/`.
+Everything is type-safe and defined as code – database schema in `lib/db/schema.ts`, migrations via Drizzle Kit.
 
 ---
 
@@ -25,7 +29,7 @@ Everything is defined as code – SQL migrations in `supabase/migrations`, TypeS
 
 | Route | Method(s) | Auth | Description |
 |-------|-----------|------|-------------|
-| `/api/auth/*` | POST, GET | Public | Supabase handles email/OAuth (handled by middleware) |
+| `/api/auth/*` | POST, GET | Public | NextAuth v5 handles email/credentials auth |
 | `/api/batteries` | GET | Public | List battery **products** with filters & pagination |
 | `/api/batteries` | POST | User | Register a new **battery system** to your account |
 | `/api/batteries/:systemId` | GET, PUT, DELETE | Owner/Admin | Fetch, update or delete a user’s system |
@@ -42,26 +46,35 @@ All routes return JSON and use standard HTTP status codes. Input validation is h
 
 ---
 
-## 🗄 Database Schema Requirements
+## 🗄 Database Schema
 
-Core tables (abridged):
+**17 Tables** with full type safety via Drizzle ORM:
 
-| Table | Key Columns | RLS Policy |
-|-------|-------------|-----------|
-| `users` | `id`, `email`, `role` | Self-select, admin read/write |
-| `battery_products` | Specs … | Public read |
-| `battery_systems` | `id`, `userId`, `serialNumber`, `manufacturer` … | Owner read/write |
-| `battery_monitoring` | `systemId`, `timestamp`, telemetry JSON | Owner read |
-| `orders` | `id`, `userId`, `items` (JSONB) … | Owner read/write |
-| `payments` | `id`, `userId`, `status`, `paymentMethod`, `metadata` | Owner read/write |
-| `payment_webhooks` | raw payload | Admin read |
-| `inventory` | `productId`, `quantity` | Admin read/write |
+### Authentication (NextAuth v5)
+- `user` - User accounts with roles
+- `account` - OAuth provider accounts
+- `session` - Active user sessions
+- `verificationToken` - Email verification tokens
+- `password_reset_token` - Password reset tokens
 
-Functions / RPC:
-* `filter_orders_by_product(product_id uuid, product_type text)`
-* Realtime channel: `realtime:battery_systems`
+### Business Domain
+- `profiles` - Extended user profile information
+- `brands` - Battery brands (Tesla, AlphaESS, LG, etc.)
+- `manufacturers` - Battery manufacturers
+- `battery_models` - Product catalog with specs and pricing
+- `price_tiers` - Volume-based pricing tiers
+- `orders` - Customer orders with Australian address support
+- `payments` - Payment records (BPAY, PayID, GoCardless, Bank Transfer)
+- `battery_systems` - Registered customer battery systems
+- `battery_monitoring` - Real-time telemetry data
+- `rebates` - Australian state-specific rebate programs
+- `reviews` - Customer product reviews
+- `newsletters` - Newsletter subscriptions
 
-Migrations live in `supabase/migrations/*` and are applied via `supabase db push`.
+**7 Enums** for type safety:
+- `user_role`, `battery_chemistry`, `australian_state`, `order_status`, `payment_status`, `payment_method`, `battery_system_status`
+
+Schema lives in `lib/db/schema.ts` and is deployed via `npm run db:push`.
 
 ---
 
@@ -101,8 +114,8 @@ Edge functions encapsulate any long-running SDK calls (`supabase/functions/payme
 1. **Clone & install**
 
    ```bash
-   git clone https://github.com/your-org/energi-hive-main.git
-   cd energi-hive-main
+   git clone https://github.com/Bobby2067/energihivegroup.git
+   cd energihivegroup
    npm install
    ```
 
@@ -118,24 +131,25 @@ Edge functions encapsulate any long-running SDK calls (`supabase/functions/payme
 
    | Key | Description |
    |-----|-------------|
-   | `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | Back-end connectivity |
-   | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Front-end public key |
+   | `DATABASE_URL` | PostgreSQL connection string (Neon recommended) |
+   | `NEXTAUTH_URL` | Your app URL (e.g., http://localhost:3000) |
+   | `NEXTAUTH_SECRET` | Random secret for NextAuth (min 32 chars) |
    | `BPAY_BILLER_CODE` | Issued by bank |
    | `GOCARDLESS_ACCESS_TOKEN` | Live / sandbox token |
-   | `SMTP_HOST` / `SMTP_USER` / `SMTP_PASS` | Email |
-   | `ALPHAESS_API_KEY` / `LG_API_KEY` | Battery vendors |
+   | `EMAIL_SERVER_HOST` / `EMAIL_SERVER_USER` / `EMAIL_SERVER_PASSWORD` | SMTP config |
+   | `ALPHAESS_API_KEY` / `LG_API_KEY` | Battery vendor APIs |
 
-3. **Database & edge**
+3. **Database setup**
 
    ```bash
-   supabase db push
-   supabase functions deploy
+   npm run db:push    # Push schema to database
+   npm run db:studio  # (Optional) Open Drizzle Studio GUI
    ```
 
-4. **Run**
+4. **Run development server**
 
    ```bash
-   npm run dev      # http://localhost:3000
+   npm run dev        # http://localhost:3000
    ```
 
 Vitest & ESLint run via `npm test` / `npm run lint`.
@@ -145,16 +159,17 @@ Vitest & ESLint run via `npm test` / `npm run lint`.
 ## 🏗 Architecture Overview
 ```
               ┌───────────────────────────┐
-              │     Front-end (UI)        │   Vite + React 18 + shadcn/ui
-              │ (ported from connect)     │
+              │     Front-end (UI)        │   Next.js 14 + React 18 + shadcn/ui
+              │   (Server Components)     │
               └─────────────┬─────────────┘
                             │ HTTP / RSC
               ┌─────────────▼─────────────┐
               │  Next.js 14 API Routes    │  Batteries • Orders • Payments
+              │     + NextAuth v5         │
               └─────────────┬─────────────┘
-                            │ supabase-js
+                            │ Drizzle ORM
               ┌─────────────▼─────────────┐
-              │    Supabase Postgres      │  RLS, cron, storage
+              │  PostgreSQL (Neon)        │  Type-safe queries, no vendor lock-in
               └───────────────────────────┘
 ```
 
@@ -162,45 +177,67 @@ Vitest & ESLint run via `npm test` / `npm run lint`.
 
 ## 🚀 Deployment (Vercel)
 
-1. **Import repo** → Vercel dashboard (Framework = Next.js).  
-2. Add environment variables for **Production** & **Preview**.  
-3. Build command `npm run build` (default).  
-4. Supabase stays separate – just supply keys.  
-5. Optional: add `vercel.json` routing for edge cache.  
+1. **Import repo** → Vercel dashboard (Framework = Next.js).
+2. Add environment variables for **Production** & **Preview**:
+   - `DATABASE_URL` (Neon PostgreSQL connection string)
+   - `NEXTAUTH_URL` (your production URL)
+   - `NEXTAUTH_SECRET` (generate with `openssl rand -base64 32`)
+   - All payment provider credentials
+3. Build command: `npm run build` (default).
+4. Database migrations: Run `npm run db:push` before deployment or use Neon's automatic migrations.
+5. Optional: Configure Neon connection pooling for serverless optimization.  
 
 ---
 
-## 🛣 Next Steps for UI Development
+## 🛣 Migration & Development Status
 
-* ☑️ **Backend 100 % complete** – API & schema stable.  
-* ☐ **Port remaining UI pages** from `energi-hive-connect` (marketing, community, settings).  
-* ☐ Implement **React Query hooks** for new endpoints.  
-* ☐ Finish **Payment Wizard** (multi-step) using shadcn/ui dialogs.  
-* ☐ Add **Battery Dashboard** charts with Recharts + realtime websockets.  
-* ☐ Lighthouse & a11y pass.  
-* ☐ End-to-end tests with Playwright.
+### ✅ Completed:
+* Drizzle ORM setup with Neon PostgreSQL
+* NextAuth v5 configuration with Drizzle adapter
+* Complete database schema (17 tables, 7 enums)
+* Payment client infrastructure (BPAY, PayID, GoCardless, Bank Transfer)
+* Energy flow monitoring components (placeholder)
+
+### ⏸️ In Progress:
+* Removing Supabase dependencies from codebase
+* Migrating API routes from Supabase to Drizzle
+* Creating remaining dashboard components
+
+### 📋 TODO:
+* Complete API route migrations (batteries, orders, payments)
+* Implement React Query hooks for Drizzle-based endpoints
+* Finish Battery Dashboard charts with Recharts
+* Payment Wizard using shadcn/ui dialogs
+* Lighthouse & accessibility pass
+* End-to-end tests with Playwright
 
 Contributions welcome – see below!
 
 ---
 
-## 🗄 Project Structure (abridged)
+## 🗄 Project Structure
 
 ```
 .
-├─ app/                 # Next.js App Router
-│  ├─ (auth)/           # login / signup
-│  ├─ dashboard/        # user dashboards
-│  ├─ products/         # battery catalogue
-│  └─ api/              # serverless routes (payments, batteries…)
-├─ components/          # UI modules (imported from connect)
-├─ lib/                 # shared libraries
-│  ├─ supabase/         # typed client helpers
-│  ├─ payments/         # AU payment client
-│  ├─ batteries/        # AlphaESS & LG clients
-│  └─ email/            # email service
-├─ supabase/            # SQL migrations + edge functions
-└─ public/              # static assets
+├─ app/                 # Next.js 14 App Router
+│  ├─ (auth)/           # Authentication pages
+│  ├─ dashboard/        # User dashboards
+│  ├─ products/         # Battery catalogue
+│  └─ api/              # API routes (orders, payments, batteries)
+├─ components/          # React components
+│  ├─ ui/               # shadcn/ui components
+│  └─ dashboard/        # Dashboard-specific components
+├─ lib/                 # Shared libraries
+│  ├─ db/               # Drizzle ORM
+│  │  ├─ schema.ts      # Database schema (17 tables)
+│  │  ├─ client.ts      # Database connection
+│  │  └─ migrations/    # Generated migrations
+│  ├─ auth.ts           # NextAuth v5 configuration
+│  ├─ payments/         # Australian payment client
+│  ├─ batteries/        # AlphaESS & LG API clients
+│  └─ email/            # Email service
+├─ drizzle.config.ts    # Drizzle Kit configuration
+└─ public/              # Static assets
 ```
 
 ---
