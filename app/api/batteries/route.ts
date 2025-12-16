@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-// TODO: Migrate to Drizzle ORM - import { db } from '@/lib/db/client'; import { auth } from '@/lib/auth';
-import { AlphaESSClient } from '@/lib/batteries/alphaess';
-import { LGClient } from '@/lib/batteries/lg';
-import { v4 as uuidv4 } from 'uuid';
+import { db } from '@/lib/db/client';
+import { auth } from '@/lib/auth';
+import { batteryModels, batterySystems, batteryMonitoring, brands, manufacturers, users } from '@/lib/db/schema';
+import { eq, and, desc, sql, gte, lte, or, like, asc } from 'drizzle-orm';
+import AlphaESSClient from '@/lib/batteries/alphaess';
+import LGClient from '@/lib/batteries/lg';
+import { applyRateLimit, rateLimitPresets } from '@/lib/rate-limit';
 
 // Battery data interfaces
 export interface BatteryProduct {
@@ -190,13 +193,12 @@ const queryParamsSchema = z.object({
 
 // Authentication middleware
 async function authenticateRequest(req: NextRequest) {
-  const supabase = createClient();
-  const { data: { session } } = await supabase.auth.getSession();
-  
-  if (!session) {
+  const session = await auth();
+
+  if (!session || !session.user) {
     return { authenticated: false, error: 'Unauthorized', userId: null };
   }
-  
+
   return { authenticated: true, error: null, userId: session.user.id };
 }
 
@@ -219,50 +221,52 @@ export async function GET(req: NextRequest) {
         if (!authenticated) {
           return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
-        
+
         // Get real-time monitoring data
-        const supabase = createClient();
-        const { data: system, error: systemError } = await supabase
-          .from('battery_systems')
-          .select('*')
-          .eq('id', systemId)
-          .single();
-          
-        if (systemError || !system) {
+        const system = await db
+          .select()
+          .from(batterySystems)
+          .where(eq(batterySystems.id, systemId))
+          .limit(1)
+          .then(rows => rows[0]);
+
+        if (!system) {
           return NextResponse.json({ error: 'System not found' }, { status: 404 });
         }
-        
+
         // Check if user owns this system
         if (system.userId !== userId) {
           return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
         }
-        
+
         // Get monitoring data based on battery type
         let monitoringData: BatteryMonitoringData;
-        
-        if (system.manufacturer === 'AlphaESS') {
-          const alphaESSClient = new AlphaESSClient();
-          monitoringData = await alphaESSClient.getRealtimeData(system.serialNumber);
-        } else if (system.manufacturer === 'LG RESU') {
-          const lgClient = new LGClient();
-          monitoringData = await lgClient.getRealtimeData(system.serialNumber);
+
+        if (system.apiProvider === 'alphaess') {
+          // Get battery status from AlphaESS API
+          const status = await AlphaESSClient.getBatteryStatus(system.serialNumber);
+          monitoringData = status as any as BatteryMonitoringData;
+        } else if (system.apiProvider === 'lg') {
+          // Get battery status from LG API
+          const status = await LGClient.getBatteryStatus(system.serialNumber);
+          monitoringData = status as any as BatteryMonitoringData;
         } else {
           // Generic monitoring data retrieval
-          const { data, error: monitoringError } = await supabase
-            .from('battery_monitoring')
-            .select('*')
-            .eq('systemId', systemId)
-            .order('timestamp', { ascending: false })
+          const latestMonitoring = await db
+            .select()
+            .from(batteryMonitoring)
+            .where(eq(batteryMonitoring.batterySystemId, systemId))
+            .orderBy(desc(batteryMonitoring.createdAt))
             .limit(1)
-            .single();
-            
-          if (monitoringError || !data) {
+            .then(rows => rows[0]);
+
+          if (!latestMonitoring) {
             return NextResponse.json({ error: 'Monitoring data not available' }, { status: 404 });
           }
-          
-          monitoringData = data as BatteryMonitoringData;
+
+          monitoringData = latestMonitoring as any as BatteryMonitoringData;
         }
-        
+
         return NextResponse.json(monitoringData);
       }
       
@@ -270,23 +274,23 @@ export async function GET(req: NextRequest) {
       if (!authenticated) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       }
-      
-      const supabase = createClient();
-      const { data: system, error: systemError } = await supabase
-        .from('battery_systems')
-        .select('*')
-        .eq('id', systemId)
-        .single();
-        
-      if (systemError || !system) {
+
+      const system = await db
+        .select()
+        .from(batterySystems)
+        .where(eq(batterySystems.id, systemId))
+        .limit(1)
+        .then(rows => rows[0]);
+
+      if (!system) {
         return NextResponse.json({ error: 'System not found' }, { status: 404 });
       }
-      
+
       // Check if user owns this system
       if (system.userId !== userId) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
-      
+
       return NextResponse.json(system);
     }
     
@@ -306,63 +310,102 @@ export async function GET(req: NextRequest) {
         sortBy,
         sortOrder,
       } = validatedParams;
-      
-      const supabase = createClient();
-      let query = supabase.from('battery_products').select('*', { count: 'exact' });
-      
-      // Apply filters
+
+      // Build conditions array
+      const conditions = [];
+
       if (manufacturer) {
-        query = query.eq('manufacturer', manufacturer);
+        // Need to join with manufacturers table
+        conditions.push(eq(manufacturers.name, manufacturer));
       }
-      
+
       if (minCapacity) {
-        query = query.gte('capacity', minCapacity);
+        conditions.push(gte(batteryModels.capacity, minCapacity.toString()));
       }
-      
+
       if (maxCapacity) {
-        query = query.lte('capacity', maxCapacity);
+        conditions.push(lte(batteryModels.capacity, maxCapacity.toString()));
       }
-      
+
       if (minPrice) {
-        query = query.gte('price', minPrice);
+        conditions.push(gte(batteryModels.basePrice, minPrice.toString()));
       }
-      
+
       if (maxPrice) {
-        query = query.lte('price', maxPrice);
+        conditions.push(lte(batteryModels.basePrice, maxPrice.toString()));
       }
-      
-      if (rebateEligible) {
-        query = query.eq('rebateEligible', rebateEligible === 'true');
-      }
-      
-      if (availableInAU) {
-        query = query.eq('availableInAU', availableInAU === 'true');
-      }
-      
+
+      // Note: rebateEligible and availableInAU are not in current schema
+      // These would need to be added to metadata or as separate fields
+
+      // Build query with joins
+      const query = db
+        .select({
+          id: batteryModels.id,
+          name: batteryModels.name,
+          manufacturer: manufacturers.name,
+          brand: brands.name,
+          model: batteryModels.modelNumber,
+          capacity: batteryModels.capacity,
+          maxPower: batteryModels.maxDischargePower,
+          cycles: batteryModels.cycleLife,
+          warranty: batteryModels.warrantyYears,
+          dimensions: batteryModels.dimensions,
+          weight: batteryModels.weight,
+          price: batteryModels.basePrice,
+          description: batteryModels.description,
+          imageUrl: sql<string>`${batteryModels.images}->0`,
+          features: batteryModels.features,
+          certifications: batteryModels.certifications,
+          chemistry: batteryModels.chemistry,
+          efficiency: batteryModels.efficiency,
+          inStock: batteryModels.inStock,
+          metadata: batteryModels.metadata,
+        })
+        .from(batteryModels)
+        .leftJoin(manufacturers, eq(batteryModels.manufacturerId, manufacturers.id))
+        .leftJoin(brands, eq(batteryModels.brandId, brands.id))
+        .where(conditions.length > 0 ? and(...conditions) : undefined);
+
       // Apply sorting
-      query = query.order(sortBy, { ascending: sortOrder === 'asc' });
-      
+      const sortColumn = {
+        price: batteryModels.basePrice,
+        capacity: batteryModels.capacity,
+        warranty: batteryModels.warrantyYears,
+        name: batteryModels.name,
+      }[sortBy];
+
+      const orderedQuery = query.orderBy(
+        sortOrder === 'asc' ? asc(sortColumn) : desc(sortColumn)
+      );
+
       // Apply pagination
-      const from = (page - 1) * limit;
-      const to = from + limit - 1;
-      query = query.range(from, to);
-      
-      const { data, error: productsError, count } = await query;
-      
-      if (productsError) {
-        return NextResponse.json({ error: 'Failed to fetch products' }, { status: 500 });
-      }
-      
+      const offset = (page - 1) * limit;
+      const paginatedQuery = orderedQuery.limit(limit).offset(offset);
+
+      // Execute query
+      const data = await paginatedQuery;
+
+      // Get total count
+      const countQuery = db
+        .select({ count: sql<number>`count(*)` })
+        .from(batteryModels)
+        .leftJoin(manufacturers, eq(batteryModels.manufacturerId, manufacturers.id))
+        .where(conditions.length > 0 ? and(...conditions) : undefined);
+
+      const countResult = await countQuery;
+      const total = Number(countResult[0]?.count || 0);
+
       return NextResponse.json({
         data,
         pagination: {
           page,
           limit,
-          total: count,
-          pages: Math.ceil((count || 0) / limit),
+          total,
+          pages: Math.ceil(total / limit),
         },
       });
-      
+
     } catch (validationError) {
       if (validationError instanceof z.ZodError) {
         return NextResponse.json({ error: 'Invalid query parameters', details: validationError.format() }, { status: 400 });
@@ -379,61 +422,75 @@ export async function GET(req: NextRequest) {
 // POST handler for creating new battery products or systems
 export async function POST(req: NextRequest) {
   try {
+    // Apply rate limiting
+    const rateLimitResult = await applyRateLimit(req, rateLimitPresets.api);
+    if (rateLimitResult) return rateLimitResult;
+
     const { authenticated, error, userId } = await authenticateRequest(req);
-    
-    if (!authenticated) {
+
+    if (!authenticated || !userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    
+
     const url = new URL(req.url);
     const path = url.pathname.split('/');
     const body = await req.json();
-    
-    const supabase = createClient();
-    
+
     // Check if this is a request to add a new system
     if (path.length === 3) {
       try {
         // Validate battery system data
         const validatedSystem = batterySystemSchema.parse(body);
-        
+
         // Check if the product exists
-        const { data: product, error: productError } = await supabase
-          .from('battery_products')
-          .select('id')
-          .eq('id', validatedSystem.productId)
-          .single();
-          
-        if (productError || !product) {
+        const product = await db
+          .select()
+          .from(batteryModels)
+          .where(eq(batteryModels.id, validatedSystem.productId))
+          .limit(1)
+          .then(rows => rows[0]);
+
+        if (!product) {
           return NextResponse.json({ error: 'Product not found' }, { status: 404 });
         }
-        
+
         // Create new battery system
-        const newSystem: BatterySystem = {
-          id: uuidv4(),
+        const newSystem = {
           userId,
-          ...validatedSystem,
-          lastUpdated: new Date().toISOString(),
+          batteryModelId: validatedSystem.productId,
+          serialNumber: validatedSystem.serialNumber,
+          name: body.name || `Battery System ${validatedSystem.serialNumber}`,
+          status: validatedSystem.status,
+          installedAt: new Date(validatedSystem.installDate),
+          installationAddress: {
+            street: validatedSystem.location.address,
+            city: validatedSystem.location.address.split(',')[1]?.trim() || '',
+            state: validatedSystem.location.state,
+            postcode: validatedSystem.location.postcode,
+            country: 'Australia',
+          },
+          capacity: validatedSystem.configuration.capacity.toString(),
+          apiProvider: body.apiProvider || null,
+          // Store API credentials as JSON (consider encryption in production)
+          apiCredentials: body.apiCredentials || null,
+          metadata: {
+            installerInfo: validatedSystem.installerInfo,
+            gridConnection: validatedSystem.gridConnection,
+            configuration: validatedSystem.configuration,
+            firmwareVersion: validatedSystem.firmwareVersion,
+            monitoringEnabled: validatedSystem.monitoringEnabled,
+          },
         };
-        
-        const { error: insertError } = await supabase
-          .from('battery_systems')
-          .insert(newSystem);
-          
-        if (insertError) {
-          return NextResponse.json({ error: 'Failed to create battery system', details: insertError.message }, { status: 500 });
-        }
-        
-        // Initialize monitoring for the system based on manufacturer
-        if (body.manufacturer === 'AlphaESS') {
-          const alphaESSClient = new AlphaESSClient();
-          await alphaESSClient.initializeMonitoring(newSystem.serialNumber, newSystem.id);
-        } else if (body.manufacturer === 'LG RESU') {
-          const lgClient = new LGClient();
-          await lgClient.initializeMonitoring(newSystem.serialNumber, newSystem.id);
-        }
-        
-        return NextResponse.json(newSystem, { status: 201 });
+
+        const [insertedSystem] = await db
+          .insert(batterySystems)
+          .values(newSystem)
+          .returning();
+
+        // Note: Real-time monitoring setup would be handled by a separate service
+        // that polls the battery status and stores it in the database
+
+        return NextResponse.json(insertedSystem, { status: 201 });
       } catch (validationError) {
         if (validationError instanceof z.ZodError) {
           return NextResponse.json({ error: 'Invalid battery system data', details: validationError.format() }, { status: 400 });
@@ -441,45 +498,65 @@ export async function POST(req: NextRequest) {
         throw validationError;
       }
     }
-    
+
     // If it's a request to add a new product (admin only)
     // Check if user is admin
-    const { data: userRole } = await supabase
-      .from('users')
-      .select('role')
-      .eq('id', userId)
-      .single();
-      
-    if (!userRole || userRole.role !== 'admin') {
+    const user = await db
+      .select({ role: users.role })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1)
+      .then(rows => rows[0]);
+
+    if (!user || (user.role !== 'platform_admin' && user.role !== 'super_admin')) {
       return NextResponse.json({ error: 'Forbidden: Admin access required' }, { status: 403 });
     }
-    
+
     try {
       // Validate battery product data
       const validatedProduct = batteryProductSchema.parse(body);
-      
+
       // Create new battery product
-      const newProduct: BatteryProduct = {
-        id: uuidv4(),
-        ...validatedProduct,
+      const newProduct = {
+        brandId: body.brandId,
+        manufacturerId: body.manufacturerId,
+        name: validatedProduct.name,
+        slug: validatedProduct.name.toLowerCase().replace(/\s+/g, '-'),
+        modelNumber: validatedProduct.model,
+        description: validatedProduct.description,
+        images: [validatedProduct.imageUrl],
+        capacity: validatedProduct.capacity.toString(),
+        chemistry: body.chemistry || 'lithium-ion',
+        warrantyYears: validatedProduct.warranty,
+        cycleLife: validatedProduct.cycles,
+        maxDischargePower: validatedProduct.maxPower.toString(),
+        maxChargePower: validatedProduct.maxPower.toString(),
+        dimensions: validatedProduct.dimensions,
+        weight: validatedProduct.weight.toString(),
+        basePrice: validatedProduct.price.toString(),
+        features: validatedProduct.features,
+        certifications: validatedProduct.certifications,
+        metadata: {
+          rebateEligible: validatedProduct.rebateEligible,
+          availableInAU: validatedProduct.availableInAU,
+          datasheet: validatedProduct.datasheet,
+          compatibleInverters: validatedProduct.compatibleInverters,
+        },
       };
-      
-      const { error: insertError } = await supabase
-        .from('battery_products')
-        .insert(newProduct);
-        
-      if (insertError) {
-        return NextResponse.json({ error: 'Failed to create battery product', details: insertError.message }, { status: 500 });
-      }
-      
-      return NextResponse.json(newProduct, { status: 201 });
+
+      const [insertedProduct] = await db
+        .insert(batteryModels)
+        .values(newProduct)
+        .returning();
+
+      return NextResponse.json(insertedProduct, { status: 201 });
     } catch (validationError) {
       if (validationError instanceof z.ZodError) {
         return NextResponse.json({ error: 'Invalid battery product data', details: validationError.format() }, { status: 400 });
       }
       throw validationError;
     }
-    
+
   } catch (error) {
     console.error('Battery API error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
@@ -489,72 +566,81 @@ export async function POST(req: NextRequest) {
 // PUT handler for updating battery systems
 export async function PUT(req: NextRequest) {
   try {
+    // Apply rate limiting
+    const rateLimitResult = await applyRateLimit(req, rateLimitPresets.api);
+    if (rateLimitResult) return rateLimitResult;
+
     const { authenticated, error, userId } = await authenticateRequest(req);
-    
-    if (!authenticated) {
+
+    if (!authenticated || !userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    
+
     const url = new URL(req.url);
     const path = url.pathname.split('/');
-    
+
     if (path.length < 4) {
       return NextResponse.json({ error: 'System ID required' }, { status: 400 });
     }
-    
+
     const systemId = path[3];
     const body = await req.json();
-    
-    const supabase = createClient();
-    
+
     // Check if system exists and belongs to user
-    const { data: system, error: systemError } = await supabase
-      .from('battery_systems')
-      .select('*')
-      .eq('id', systemId)
-      .single();
-      
-    if (systemError || !system) {
+    const system = await db
+      .select()
+      .from(batterySystems)
+      .where(eq(batterySystems.id, systemId))
+      .limit(1)
+      .then(rows => rows[0]);
+
+    if (!system) {
       return NextResponse.json({ error: 'System not found' }, { status: 404 });
     }
-    
+
     if (system.userId !== userId) {
       // Check if user is admin
-      const { data: userRole } = await supabase
-        .from('users')
-        .select('role')
-        .eq('id', userId)
-        .single();
-        
-      if (!userRole || userRole.role !== 'admin') {
+      const user = await db
+        .select({ role: users.role })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1)
+        .then(rows => rows[0]);
+
+      if (!user || (user.role !== 'platform_admin' && user.role !== 'super_admin')) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
     }
-    
-    // Update system
-    const updates = {
-      ...body,
-      lastUpdated: new Date().toISOString(),
+
+    // Build updates object
+    const updates: any = {
+      updatedAt: new Date(),
     };
-    
-    const { error: updateError } = await supabase
-      .from('battery_systems')
-      .update(updates)
-      .eq('id', systemId);
-      
-    if (updateError) {
-      return NextResponse.json({ error: 'Failed to update system', details: updateError.message }, { status: 500 });
+
+    if (body.name) updates.name = body.name;
+    if (body.status) updates.status = body.status;
+    if (body.capacity) updates.capacity = body.capacity.toString();
+    if (body.apiProvider) updates.apiProvider = body.apiProvider;
+    if (body.apiCredentials) {
+      // Store API credentials as JSON (consider encryption in production)
+      updates.apiCredentials = body.apiCredentials;
     }
-    
-    // Get updated system
-    const { data: updatedSystem } = await supabase
-      .from('battery_systems')
-      .select('*')
-      .eq('id', systemId)
-      .single();
-      
+    if (body.metadata) {
+      updates.metadata = {
+        ...(system.metadata as Record<string, any> || {}),
+        ...body.metadata,
+      };
+    }
+
+    // Update system
+    const [updatedSystem] = await db
+      .update(batterySystems)
+      .set(updates)
+      .where(eq(batterySystems.id, systemId))
+      .returning();
+
     return NextResponse.json(updatedSystem);
-    
+
   } catch (error) {
     console.error('Battery API error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
@@ -564,65 +650,58 @@ export async function PUT(req: NextRequest) {
 // DELETE handler for removing battery systems
 export async function DELETE(req: NextRequest) {
   try {
+    // Apply rate limiting
+    const rateLimitResult = await applyRateLimit(req, rateLimitPresets.api);
+    if (rateLimitResult) return rateLimitResult;
+
     const { authenticated, error, userId } = await authenticateRequest(req);
-    
-    if (!authenticated) {
+
+    if (!authenticated || !userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    
+
     const url = new URL(req.url);
     const path = url.pathname.split('/');
-    
+
     if (path.length < 4) {
       return NextResponse.json({ error: 'System ID required' }, { status: 400 });
     }
-    
+
     const systemId = path[3];
-    
-    const supabase = createClient();
-    
+
     // Check if system exists and belongs to user
-    const { data: system, error: systemError } = await supabase
-      .from('battery_systems')
-      .select('*')
-      .eq('id', systemId)
-      .single();
-      
-    if (systemError || !system) {
+    const system = await db
+      .select()
+      .from(batterySystems)
+      .where(eq(batterySystems.id, systemId))
+      .limit(1)
+      .then(rows => rows[0]);
+
+    if (!system) {
       return NextResponse.json({ error: 'System not found' }, { status: 404 });
     }
-    
+
     if (system.userId !== userId) {
       // Check if user is admin
-      const { data: userRole } = await supabase
-        .from('users')
-        .select('role')
-        .eq('id', userId)
-        .single();
-        
-      if (!userRole || userRole.role !== 'admin') {
+      const user = await db
+        .select({ role: users.role })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1)
+        .then(rows => rows[0]);
+
+      if (!user || (user.role !== 'platform_admin' && user.role !== 'super_admin')) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
     }
-    
-    // Delete system
-    const { error: deleteError } = await supabase
-      .from('battery_systems')
-      .delete()
-      .eq('id', systemId);
-      
-    if (deleteError) {
-      return NextResponse.json({ error: 'Failed to delete system', details: deleteError.message }, { status: 500 });
-    }
-    
-    // Clean up monitoring data
-    await supabase
-      .from('battery_monitoring')
-      .delete()
-      .eq('systemId', systemId);
-      
+
+    // Delete system (monitoring data will be cascade deleted)
+    await db
+      .delete(batterySystems)
+      .where(eq(batterySystems.id, systemId));
+
     return NextResponse.json({ success: true, message: 'System deleted successfully' });
-    
+
   } catch (error) {
     console.error('Battery API error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
