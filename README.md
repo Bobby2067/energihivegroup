@@ -192,22 +192,23 @@ Vitest & ESLint run via `npm test` / `npm run lint`.
 ## 🛣 Migration & Development Status
 
 ### ✅ Completed:
-* Drizzle ORM setup with Neon PostgreSQL
-* NextAuth v5 configuration with Drizzle adapter
-* Complete database schema (17 tables, 7 enums)
-* Payment client infrastructure (BPAY, PayID, GoCardless, Bank Transfer)
-* Energy flow monitoring components (placeholder)
-
-### ⏸️ In Progress:
-* Removing Supabase dependencies from codebase
-* Migrating API routes from Supabase to Drizzle
-* Creating remaining dashboard components
+* ✅ Drizzle ORM setup with Neon PostgreSQL
+* ✅ NextAuth v5 configuration with Drizzle adapter
+* ✅ Complete database schema (17 tables, 7 enums)
+* ✅ Payment client infrastructure (BPAY, PayID, GoCardless, Bank Transfer)
+* ✅ **API route migrations complete** (batteries, orders, payments)
+* ✅ **All TypeScript errors resolved** - full type safety
+* ✅ **Supabase completely removed** from codebase
+* ✅ Rate limiting implemented on all API routes
+* ✅ Security vulnerabilities fixed (5 critical issues resolved)
+* ✅ Energy flow monitoring components (placeholder)
 
 ### 📋 TODO:
-* Complete API route migrations (batteries, orders, payments)
 * Implement React Query hooks for Drizzle-based endpoints
 * Finish Battery Dashboard charts with Recharts
 * Payment Wizard using shadcn/ui dialogs
+* Create missing dashboard components
+* Create missing homepage components
 * Lighthouse & accessibility pass
 * End-to-end tests with Playwright
 
