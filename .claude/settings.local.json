@@ -23,7 +23,8 @@
       "Bash(git commit:*)",
       "Bash(find:*)",
       "Bash(claude --version:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(gh pr create:*)"
     ],
     "deny": [],
     "ask": []
